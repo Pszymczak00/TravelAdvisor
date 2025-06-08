@@ -1,0 +1,104 @@
+@page "/travel-time"
+@using TravelAdvisor.Backend.Models
+@using TravelAdvisor.Backend.Services
+@using Microsoft.EntityFrameworkCore
+@using TravelAdvisor.Backend.Data
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+@inject PlaceRankingService PlaceRankingService
+
+<PageTitle>Kalkulator czasu podróży</PageTitle>
+
+<h3>Kalkulator czasu podróży</h3>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="form-group mb-3">
+            <label for="fromPlace">Miejsce początkowe:</label>
+            <select class="form-select" id="fromPlace" @bind="selectedFromPlaceId" @bind:after="CalculateTravelTime">
+                <option value="">Wybierz miejsce początkowe...</option>
+                @foreach (var place in places)
+                {
+                    <option value="@place.Id">@place.Name (@place.City)</option>
+                }
+            </select>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="form-group mb-3">
+            <label for="toPlace">Miejsce docelowe:</label>
+            <select class="form-select" id="toPlace" @bind="selectedToPlaceId" @bind:after="CalculateTravelTime">
+                <option value="">Wybierz miejsce docelowe...</option>
+                @foreach (var place in places)
+                {
+                    <option value="@place.Id">@place.Name (@place.City)</option>
+                }
+            </select>
+        </div>
+    </div>
+</div>
+
+@if (travelTime.HasValue)
+{
+    <div class="alert alert-info mt-4">
+        <h4>Wynik:</h4>
+        <p>
+            Szacowany czas podróży między wybranymi miejscami:
+            @if (travelTime.Value.TotalHours >= 1)
+            {
+                <span>@Math.Floor(travelTime.Value.TotalHours) godzin </span>
+            }
+            @if (travelTime.Value.Minutes > 0)
+            {
+                <span>@travelTime.Value.Minutes minut</span>
+            }
+        </p>
+        <p class="mb-0">
+            <small class="text-muted">
+                Obliczenia zakładają:
+                <ul class="mb-0">
+                    <li>Średnią prędkość przemieszczania się 5 km/h (spacer)</li>
+                    <li>Stały czas na transport 10 minut (przygotowanie, oczekiwanie itp.)</li>
+                    <li>Zaokrąglenie czasu do pełnych 5 minut</li>
+                </ul>
+                Rzeczywisty czas może się różnić w zależności od wybranej trasy i środka transportu.
+            </small>
+        </p>
+    </div>
+}
+
+@code {
+    private List<Place> places = new();
+    private Guid? selectedFromPlaceId;
+    private Guid? selectedToPlaceId;
+    private TimeSpan? travelTime;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPlaces();
+    }
+
+    private async Task LoadPlaces()
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        places = await context.Places.OrderBy(p => p.Name).ToListAsync();
+    }
+
+    private async Task CalculateTravelTime()
+    {
+        if (selectedFromPlaceId.HasValue && selectedToPlaceId.HasValue)
+        {
+            var fromPlace = places.FirstOrDefault(p => p.Id == selectedFromPlaceId.Value);
+            var toPlace = places.FirstOrDefault(p => p.Id == selectedToPlaceId.Value);
+
+            if (fromPlace != null && toPlace != null)
+            {
+                travelTime = PlaceRankingService.CalculateTravelTime(fromPlace, toPlace);
+                StateHasChanged();
+            }
+        }
+        else
+        {
+            travelTime = null;
+        }
+    }
+} 

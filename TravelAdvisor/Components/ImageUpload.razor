@@ -1,0 +1,104 @@
+@using System.IO
+@using Microsoft.AspNetCore.Components.Forms
+@using TravelAdvisor.Backend.Models
+@using TravelAdvisor.Backend.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<div class="image-upload-container">
+    <InputFile OnChange="@LoadFiles" multiple accept=".jpg,.jpeg,.png,.gif" />
+    
+    @if (_loading)
+    {
+        <div class="loading">Przesyłanie...</div>
+    }
+    
+    @if (_errors.Any())
+    {
+        <div class="alert alert-danger">
+            <ul>
+                @foreach (var error in _errors)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        </div>
+    }
+</div>
+
+<style>
+    .image-upload-container {
+        margin: 1rem 0;
+    }
+    
+    .loading {
+        margin-top: 0.5rem;
+        color: #666;
+    }
+    
+    .alert-danger {
+        color: #721c24;
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+        padding: 0.75rem 1.25rem;
+        margin: 1rem 0;
+        border: 1px solid transparent;
+        border-radius: 0.25rem;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public Guid PlaceId { get; set; }
+    
+    [Parameter]
+    public EventCallback OnImageUploaded { get; set; }
+    
+    private bool _loading;
+    private List<string> _errors = new();
+    private long maxFileSize = 1024 * 1024 * 5; // 5MB
+    
+    private async Task LoadFiles(InputFileChangeEventArgs e)
+    {
+        _loading = true;
+        _errors.Clear();
+        
+        try
+        {
+            await using var context = await DbFactory.CreateDbContextAsync();
+            foreach (var file in e.GetMultipleFiles(10)) // Max 10 files at once
+            {
+                if (file.Size > maxFileSize)
+                {
+                    _errors.Add($"Plik {file.Name} jest za duży. Maksymalny rozmiar to 5MB.");
+                    continue;
+                }
+
+                using var ms = new MemoryStream();
+                await file.OpenReadStream(maxFileSize).CopyToAsync(ms);
+                
+                var image = new Image
+                {
+                    Id = Guid.NewGuid(),
+                    FileName = file.Name,
+                    ContentType = file.ContentType,
+                    Data = ms.ToArray(),
+                    PlaceId = PlaceId
+                };
+
+                context.Images.Add(image);
+            }
+
+            await context.SaveChangesAsync();
+            await OnImageUploaded.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _errors.Add($"Błąd podczas przesyłania: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+} 

@@ -1,0 +1,46 @@
+﻿@using Microsoft.JSInterop
+@using Microsoft.EntityFrameworkCore
+@using TravelAdvisor.Backend.Data
+@inject IJSRuntime JSRuntime
+@inject IDbContextFactory<ApplicationDbContext> DbContextFactory
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">TravelAdvisor</a>
+        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+    </div>
+</div>
+
+<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
+    <nav class="flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-clipboard2-check-fill" aria-hidden="true"></span> Ankieta preferencji
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="places">
+                <span class="bi bi-geo-alt-fill" aria-hidden="true"></span> Miejsca
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="travel-time">
+                <span class="bi bi-clock-fill" aria-hidden="true"></span> Kalkulator czasu podróży
+            </NavLink>
+        </div>
+    </nav>
+</div>
+
+@code {
+    private bool collapseNavMenu = true;
+
+    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    private void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+}
+

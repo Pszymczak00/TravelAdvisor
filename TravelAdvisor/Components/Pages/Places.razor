@@ -1,0 +1,545 @@
+@page "/places"
+@using TravelAdvisor.Backend.Models
+@using TravelAdvisor.Backend.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<h3>Miejsca</h3>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="() => ShowAddDialog()">Dodaj nowe miejsce</button>
+</div>
+
+@if (places == null)
+{
+    <p>Ładowanie...</p>
+}
+else
+{
+    <div class="places-grid">
+        @foreach (var place in places)
+        {
+            <div class="place-card">
+                <div class="place-images">
+                    @if (place.Images.Any())
+                    {
+                        <img src="@GetImageUrl(place.Images.First())" alt="@place.Name" />
+                    }
+                    else
+                    {
+                        <div class="no-image">Brak zdjęcia</div>
+                    }
+                </div>
+                <div class="place-info">
+                    <h4>@place.Name</h4>
+                    <p class="address">
+                        @place.Street @place.StreetNumber<br />
+                        @place.PostalCode @place.City<br />
+                        @place.Country
+                    </p>
+                    <p class="coordinates">
+                        @place.Latitude, @place.Longitude
+                    </p>
+                    <p class="visit-time">
+                        Czas zwiedzania: @($"{place.ExpectedVisitTime.Hours}h {place.ExpectedVisitTime.Minutes}min")
+                    </p>
+                    <div class="opening-hours">
+                        <h5>Godziny otwarcia:</h5>
+                        @foreach (var day in Enum.GetValues<DayOfWeek>())
+                        {
+                            var hours = place.OpeningHours.FirstOrDefault(oh => oh.DayOfWeek == day);
+                            <div>
+                                @(System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(day)):
+                                @if (hours?.IsClosed ?? true)
+                                {
+                                    <span>Zamknięte</span>
+                                }
+                                else
+                                {
+                                    <span>@hours.OpenTime.ToString("HH:mm") - @hours.CloseTime.ToString("HH:mm")</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="tags">
+                        @foreach (var tag in place.Tags)
+                        {
+                            <span class="tag">@tag.Name</span>
+                        }
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-warning btn-sm" @onclick="() => ShowEditDialog(place)">Edytuj</button>
+                        <button class="btn btn-danger btn-sm" @onclick="() => DeletePlace(place)">Usuń</button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (showDialog)
+{
+    <div class="modal" tabindex="-1" style="display: block; background-color: rgba(0,0,0,0.5)">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(editingPlace?.Id == Guid.Empty ? "Dodaj miejsce" : "Edytuj miejsce")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group mb-3">
+                        <label for="name">Nazwa:</label>
+                        <input type="text" class="form-control" id="name" @bind="editingPlace.Name" />
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-8">
+                            <div class="form-group">
+                                <label for="street">Ulica:</label>
+                                <input type="text" class="form-control" id="street" @bind="editingPlace.Street" />
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label for="streetNumber">Numer:</label>
+                                <input type="text" class="form-control" id="streetNumber" @bind="editingPlace.StreetNumber" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-4">
+                            <div class="form-group">
+                                <label for="postalCode">Kod pocztowy:</label>
+                                <input type="text" class="form-control" id="postalCode" @bind="editingPlace.PostalCode" />
+                            </div>
+                        </div>
+                        <div class="col-8">
+                            <div class="form-group">
+                                <label for="city">Miasto:</label>
+                                <input type="text" class="form-control" id="city" @bind="editingPlace.City" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label for="country">Kraj:</label>
+                        <input type="text" class="form-control" id="country" @bind="editingPlace.Country" />
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label for="expectedVisitTime">Oczekiwany czas zwiedzania (godziny:minuty):</label>
+                        <input type="time" class="form-control" id="expectedVisitTime" 
+                               value="@($"{editingPlace.ExpectedVisitTime.Hours:D2}:{editingPlace.ExpectedVisitTime.Minutes:D2}")"
+                               @onchange="@(e => OnExpectedVisitTimeChanged(e.Value?.ToString()))" />
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label for="latitude">Szerokość geograficzna:</label>
+                                <input type="number" step="any" class="form-control" id="latitude" @bind="editingPlace.Latitude" />
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label for="longitude">Długość geograficzna:</label>
+                                <input type="number" step="any" class="form-control" id="longitude" @bind="editingPlace.Longitude" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label>Godziny otwarcia:</label>
+                        @foreach (var day in Enum.GetValues<DayOfWeek>())
+                        {
+                            var hours = editingHours.FirstOrDefault(oh => oh.DayOfWeek == day) ?? 
+                                      new OpeningHours { DayOfWeek = day, IsClosed = true };
+                            <div class="row mb-2 align-items-center">
+                                <div class="col-2">
+                                    @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(day)
+                                </div>
+                                <div class="col-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" 
+                                               checked="@(!hours.IsClosed)"
+                                               @onchange="@(e => OnOpenStatusChanged(day, (bool)e.Value))" />
+                                        <label class="form-check-label">Otwarte</label>
+                                    </div>
+                                </div>
+                                @if (!hours.IsClosed)
+                                {
+                                    <div class="col-4">
+                                        <input type="time" class="form-control" 
+                                               value="@hours.OpenTime.ToString("HH:mm")"
+                                               @onchange="@(e => OnOpenTimeChanged(day, e.Value?.ToString()))" />
+                                    </div>
+                                    <div class="col-4">
+                                        <input type="time" class="form-control" 
+                                               value="@hours.CloseTime.ToString("HH:mm")"
+                                               @onchange="@(e => OnCloseTimeChanged(day, e.Value?.ToString()))" />
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label>Tagi:</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var tag in allTags)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" 
+                                           checked="@selectedTags.Contains(tag.Id)"
+                                           @onchange="@(e => OnTagSelectionChanged(tag.Id, (bool)e.Value))" />
+                                    <label class="form-check-label">@tag.Name</label>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @if (editingPlace.Id != Guid.Empty)
+                    {
+                        <div class="form-group mb-3">
+                            <label>Zdjęcia:</label>
+                            <ImageGallery PlaceId="editingPlace.Id" @ref="imageGallery" />
+                            <ImageUpload PlaceId="editingPlace.Id" OnImageUploaded="RefreshImages" />
+                        </div>
+                    }
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseDialog">Anuluj</button>
+                    <button type="button" class="btn btn-primary" @onclick="SavePlace">Zapisz</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .places-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 1.5rem;
+        padding: 1rem 0;
+    }
+
+    .place-card {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        overflow: hidden;
+        background: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .place-images {
+        height: 200px;
+        overflow: hidden;
+        background: #f8f9fa;
+    }
+
+    .place-images img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .no-image {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #6c757d;
+        font-style: italic;
+    }
+
+    .place-info {
+        padding: 1rem;
+    }
+
+    .place-info h4 {
+        margin: 0 0 0.5rem 0;
+        color: #212529;
+    }
+
+    .address {
+        font-size: 0.9rem;
+        color: #6c757d;
+        margin-bottom: 0.5rem;
+    }
+
+    .coordinates {
+        font-size: 0.8rem;
+        color: #6c757d;
+        margin-bottom: 0.5rem;
+    }
+
+    .visit-time {
+        font-size: 0.9rem;
+        color: #6c757d;
+        margin-bottom: 0.5rem;
+    }
+
+    .opening-hours {
+        font-size: 0.9rem;
+        margin: 1rem 0;
+    }
+
+    .opening-hours h5 {
+        font-size: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin: 1rem 0;
+    }
+
+    .tag {
+        background: #e9ecef;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        color: #495057;
+    }
+
+    .actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+</style>
+
+@code {
+    private List<Place> places = new();
+    private List<Tag> allTags = new();
+    private HashSet<Guid> selectedTags = new();
+    private bool showDialog = false;
+    private Place editingPlace = new Place();
+    private List<OpeningHours> editingHours = new();
+    private ImageGallery? imageGallery;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPlaces();
+        await LoadTags();
+    }
+
+    private async Task LoadPlaces()
+    {
+        await using var context = await DbFactory.CreateDbContextAsync();
+        places = await context.Places
+            .Include(p => p.Tags)
+            .Include(p => p.OpeningHours)
+            .Include(p => p.Images)
+            .ToListAsync();
+    }
+
+    private async Task LoadTags()
+    {
+        await using var context = await DbFactory.CreateDbContextAsync();
+        allTags = await context.Tags.ToListAsync();
+    }
+
+    private void ShowAddDialog()
+    {
+        editingPlace = new Place { Id = Guid.Empty };
+        editingHours = new List<OpeningHours>();
+        selectedTags.Clear();
+        showDialog = true;
+    }
+
+    private void ShowEditDialog(Place place)
+    {
+        editingPlace = new Place
+        {
+            Id = place.Id,
+            Name = place.Name,
+            Street = place.Street,
+            StreetNumber = place.StreetNumber,
+            PostalCode = place.PostalCode,
+            City = place.City,
+            Country = place.Country,
+            Latitude = place.Latitude,
+            Longitude = place.Longitude,
+            ExpectedVisitTime = place.ExpectedVisitTime
+        };
+        editingHours = place.OpeningHours.ToList();
+        selectedTags = new HashSet<Guid>(place.Tags.Select(t => t.Id));
+        showDialog = true;
+    }
+
+    private void OnTagSelectionChanged(Guid tagId, bool isSelected)
+    {
+        if (isSelected)
+        {
+            selectedTags.Add(tagId);
+        }
+        else
+        {
+            selectedTags.Remove(tagId);
+        }
+    }
+
+    private void OnOpenStatusChanged(DayOfWeek day, bool isOpen)
+    {
+        var hours = editingHours.FirstOrDefault(oh => oh.DayOfWeek == day);
+        if (hours == null)
+        {
+            hours = new OpeningHours
+            {
+                DayOfWeek = day,
+                OpenTime = new TimeOnly(9, 0),
+                CloseTime = new TimeOnly(17, 0)
+            };
+            editingHours.Add(hours);
+        }
+        hours.IsClosed = !isOpen;
+    }
+
+    private void OnOpenTimeChanged(DayOfWeek day, string? timeStr)
+    {
+        if (TimeOnly.TryParse(timeStr, out var time))
+        {
+            var hours = editingHours.FirstOrDefault(oh => oh.DayOfWeek == day);
+            if (hours == null)
+            {
+                hours = new OpeningHours { DayOfWeek = day };
+                editingHours.Add(hours);
+            }
+            hours.OpenTime = time;
+        }
+    }
+
+    private void OnCloseTimeChanged(DayOfWeek day, string? timeStr)
+    {
+        if (TimeOnly.TryParse(timeStr, out var time))
+        {
+            var hours = editingHours.FirstOrDefault(oh => oh.DayOfWeek == day);
+            if (hours == null)
+            {
+                hours = new OpeningHours { DayOfWeek = day };
+                editingHours.Add(hours);
+            }
+            hours.CloseTime = time;
+        }
+    }
+
+    private void OnExpectedVisitTimeChanged(string? timeStr)
+    {
+        if (timeStr != null)
+        {
+            var parts = timeStr.Split(':');
+            if (parts.Length == 3 && int.TryParse(parts[0], out var hours) && int.TryParse(parts[1], out var minutes))
+            {
+                editingPlace.ExpectedVisitTime = new TimeSpan(hours, minutes, 0);
+            }
+        }
+    }
+
+    private async Task SavePlace()
+    {
+        await using var context = await DbFactory.CreateDbContextAsync();
+        if (editingPlace.Id == Guid.Empty)
+        {
+            editingPlace.Id = Guid.NewGuid();
+            
+            // Pobierz referencje do istniejących tagów
+            var selectedTagEntities = await context.Tags
+                .Where(t => selectedTags.Contains(t.Id))
+                .ToListAsync();
+            
+            editingPlace.Tags = selectedTagEntities;
+            editingPlace.OpeningHours = editingHours;
+            editingPlace.Country = editingPlace.Country;
+            editingPlace.Latitude = editingPlace.Latitude;
+            editingPlace.Longitude = editingPlace.Longitude;
+            editingPlace.ExpectedVisitTime = editingPlace.ExpectedVisitTime;
+            context.Places.Add(editingPlace);
+        }
+        else
+        {
+            var place = await context.Places
+                .Include(p => p.Tags)
+                .Include(p => p.OpeningHours)
+                .FirstOrDefaultAsync(p => p.Id == editingPlace.Id);
+
+            if (place != null)
+            {
+                place.Name = editingPlace.Name;
+                place.Street = editingPlace.Street;
+                place.StreetNumber = editingPlace.StreetNumber;
+                place.PostalCode = editingPlace.PostalCode;
+                place.City = editingPlace.City;
+                place.Country = editingPlace.Country;
+                place.Latitude = editingPlace.Latitude;
+                place.Longitude = editingPlace.Longitude;
+                place.ExpectedVisitTime = editingPlace.ExpectedVisitTime;
+
+                // Pobierz referencje do istniejących tagów
+                var selectedTagEntities = await context.Tags
+                    .Where(t => selectedTags.Contains(t.Id))
+                    .ToListAsync();
+
+                // Wyczyść i dodaj nowe tagi
+                place.Tags.Clear();
+                foreach (var tag in selectedTagEntities)
+                {
+                    place.Tags.Add(tag);
+                }
+
+                // Zaktualizuj godziny otwarcia
+                place.OpeningHours.Clear();
+                foreach (var hours in editingHours)
+                {
+                    place.OpeningHours.Add(new OpeningHours
+                    {
+                        DayOfWeek = hours.DayOfWeek,
+                        OpenTime = hours.OpenTime,
+                        CloseTime = hours.CloseTime,
+                        IsClosed = hours.IsClosed
+                    });
+                }
+            }
+        }
+
+        await context.SaveChangesAsync();
+        await LoadPlaces();
+        CloseDialog();
+    }
+
+    private async Task DeletePlace(Place place)
+    {
+        await using var context = await DbFactory.CreateDbContextAsync();
+        context.Places.Remove(place);
+        await context.SaveChangesAsync();
+        await LoadPlaces();
+    }
+
+    private void CloseDialog()
+    {
+        showDialog = false;
+        editingPlace = new Place();
+        editingHours.Clear();
+        selectedTags.Clear();
+    }
+
+    private string GetImageUrl(Image image)
+    {
+        var base64 = Convert.ToBase64String(image.Data);
+        return $"data:{image.ContentType};base64,{base64}";
+    }
+
+    private async Task RefreshImages()
+    {
+        if (imageGallery != null)
+        {
+            await imageGallery.RefreshImages();
+        }
+        await LoadPlaces();
+    }
+} 

@@ -1,0 +1,311 @@
+@page "/"
+@using TravelAdvisor.Backend.Models
+@using TravelAdvisor.Backend.Data
+@using TravelAdvisor.Backend.Services
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.JSInterop
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject PlaceRankingService RankingService
+@inject IJSRuntime JSRuntime
+
+<div class="container mt-4">
+    @if (!surveyStarted)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h3>Ankieta preferencji miejsc</h3>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="username" class="form-label">Nazwa użytkownika:</label>
+                    <input type="text" class="form-control" id="username" @bind="username" />
+                </div>
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email:</label>
+                    <input type="email" class="form-control" id="email" @bind="email" />
+                </div>
+                <button class="btn btn-primary" @onclick="StartSurvey">Rozpocznij ankietę</button>
+            </div>
+        </div>
+    }
+    else if (!surveyCompleted)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h3>Wybierz preferowane miejsce (@currentStep/5)</h3>
+                <p class="text-muted mb-0">Wybrane miejsce otrzyma pozytywną opinię, a pozostałe negatywne.</p>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    @foreach (var place in currentPlaces)
+                    {
+                        <div class="col-md-4">
+                            <div class="card mb-3">
+                                <div class="place-images">
+                                    @if (place.Images.Any())
+                                    {
+                                        <div id="carousel-@place.Id" class="carousel slide" data-bs-ride="false">
+                                            <div class="carousel-inner">
+                                                @foreach (var (image, index) in place.Images.Select((img, i) => (img, i)))
+                                                {
+                                                    <div class="carousel-item @(index == 0 ? "active" : "")">
+                                                        <img src="@GetImageUrl(image)" class="d-block w-100" alt="@place.Name">
+                                                    </div>
+                                                }
+                                            </div>
+                                            @if (place.Images.Count > 1)
+                                            {
+                                                <button class="carousel-control-prev" type="button" data-bs-target="#carousel-@place.Id" data-bs-slide="prev">
+                                                    <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                                                    <span class="visually-hidden">Poprzednie</span>
+                                                </button>
+                                                <button class="carousel-control-next" type="button" data-bs-target="#carousel-@place.Id" data-bs-slide="next">
+                                                    <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                                                    <span class="visually-hidden">Następne</span>
+                                                </button>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="no-image">
+                                            <span>Brak zdjęć</span>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="card-body">
+                                    <h5 class="card-title">@place.Name</h5>
+                                    <p class="card-text">
+                                        @place.Street @place.StreetNumber<br />
+                                        @place.PostalCode @place.City
+                                    </p>
+                                    <button class="btn btn-success" @onclick="() => SelectPlace(place)">Wybierz to miejsce</button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-success mb-4" role="alert">
+            <h4 class="alert-heading">Dziękujemy!</h4>
+            <p>Twoje preferencje zostały zapisane. Teraz możesz zaplanować zwiedzanie wybranych miejsc.</p>
+        </div>
+
+        <VisitPlanner RankedPlaces="@rankedPlaces" RankingService="@RankingService" />
+    }
+</div>
+
+<style>
+    .place-images {
+        height: 200px;
+        overflow: hidden;
+        background: #f8f9fa;
+        position: relative;
+    }
+
+    .place-images img {
+        width: 100%;
+        height: 200px;
+        object-fit: cover;
+    }
+
+    .no-image {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #6c757d;
+        font-style: italic;
+    }
+
+    .carousel-control-prev,
+    .carousel-control-next {
+        background: rgba(0, 0, 0, 0.5);
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+
+    .carousel-control-prev {
+        left: 10px;
+    }
+
+    .carousel-control-next {
+        right: 10px;
+    }
+
+    .carousel-control-prev-icon,
+    .carousel-control-next-icon {
+        width: 20px;
+        height: 20px;
+    }
+
+    .carousel-indicators {
+        margin-bottom: 0;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 15px;
+        padding: 5px;
+    }
+
+    .carousel-indicators button {
+        width: 8px !important;
+        height: 8px !important;
+        border-radius: 50%;
+        margin: 0 4px !important;
+    }
+</style>
+
+@code {
+    private string username = string.Empty;
+    private string email = string.Empty;
+    private bool surveyStarted = false;
+    private bool surveyCompleted = false;
+    private int currentStep = 1;
+    private User? currentUser;
+    private List<Place> allPlaces = new();
+    private List<Place> currentPlaces = new();
+    private List<PlaceRankingService.RankedPlace> rankedPlaces = new();
+    private Random random = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var context = await DbFactory.CreateDbContextAsync();
+        allPlaces = await context.Places
+            .Include(p => p.Images)
+            .Include(p => p.OpeningHours)
+            .ToListAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            await InitializeCarousels();
+        }
+    }
+
+    private string GetImageUrl(Image image)
+    {
+        var base64 = Convert.ToBase64String(image.Data);
+        return $"data:{image.ContentType};base64,{base64}";
+    }
+
+    private async Task InitializeCarousels()
+    {
+        if (!surveyCompleted && surveyStarted)
+        {
+            foreach (var place in currentPlaces)
+            {
+                if (place.Images.Any())
+                {
+                    await JSRuntime.InvokeVoidAsync("initCarousel", $"carousel-{place.Id}");
+                }
+            }
+        }
+    }
+
+    private async Task StartSurvey()
+    {
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(email))
+        {
+            return;
+        }
+
+        await using var context = await DbFactory.CreateDbContextAsync();
+        
+        currentUser = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = username,
+            Email = email
+        };
+
+        context.Users.Add(currentUser);
+        await context.SaveChangesAsync();
+
+        surveyStarted = true;
+        await LoadNextPlaces();
+        StateHasChanged();
+        await InitializeCarousels();
+    }
+
+    private async Task LoadNextPlaces()
+    {
+        currentPlaces = allPlaces
+            .OrderBy(x => random.Next())
+            .Take(3)
+            .ToList();
+    }
+
+    private async Task SelectPlace(Place selectedPlace)
+    {
+        // Zapisz pozytywną opinię dla wybranego miejsca
+        await SaveOpinion(selectedPlace, true);
+
+        // Zapisz negatywne opinie dla pozostałych miejsc
+        foreach (var place in currentPlaces.Where(p => p.Id != selectedPlace.Id))
+        {
+            await SaveOpinion(place, false);
+        }
+
+        await ProcessNextStep();
+        StateHasChanged();
+        await InitializeCarousels();
+    }
+
+    private async Task SaveOpinion(Place place, bool isPositive)
+    {
+        if (currentUser == null) return;
+
+        await using var context = await DbFactory.CreateDbContextAsync();
+        var opinion = await context.UserPlaceOpinions
+            .FirstOrDefaultAsync(o => o.UserId == currentUser.Id && o.PlaceId == place.Id);
+
+        if (opinion == null)
+        {
+            opinion = new UserPlaceOpinion
+            {
+                Id = Guid.NewGuid(),
+                UserId = currentUser.Id,
+                PlaceId = place.Id,
+                PositiveOpinions = 0,
+                NegativeOpinions = 0,
+                LastModified = DateTime.UtcNow
+            };
+            context.UserPlaceOpinions.Add(opinion);
+        }
+
+        if (isPositive)
+        {
+            opinion.PositiveOpinions++;
+        }
+        else
+        {
+            opinion.NegativeOpinions++;
+        }
+
+        opinion.LastModified = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+    }
+
+    private async Task ProcessNextStep()
+    {
+        currentStep++;
+        if (currentStep <= 5)
+        {
+            await LoadNextPlaces();
+        }
+        else
+        {
+            surveyCompleted = true;
+            // Pobierz ranking miejsc po zakończeniu ankiety
+            rankedPlaces = await RankingService.GetRankedPlacesForUser(username);
+        }
+    }
+} 

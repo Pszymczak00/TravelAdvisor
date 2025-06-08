@@ -1,0 +1,414 @@
+@using TravelAdvisor.Backend.Models
+@using TravelAdvisor.Backend.Services
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+
+<div class="card">
+    <div class="card-header">
+        <h4>Zaplanuj zwiedzanie</h4>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label class="form-label">Data i godzina rozpoczęcia</label>
+                    <input type="datetime-local" class="form-control" @bind="startDateTime" />
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label class="form-label">Data i godzina zakończenia</label>
+                    <input type="datetime-local" class="form-control" @bind="endDateTime" />
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label class="form-label">Godzina rozpoczęcia (pozostałe dni)</label>
+                    <input type="time" class="form-control" @bind="dailyStartTime" />
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label class="form-label">Godzina zakończenia (pozostałe dni)</label>
+                    <input type="time" class="form-control" @bind="dailyEndTime" />
+                </div>
+            </div>
+        </div>
+        <button class="btn btn-primary" @onclick="GenerateVisitPlan">Zaplanuj zwiedzanie</button>
+    </div>
+</div>
+
+@if (visitPlan != null)
+{
+    <div class="mt-4">
+        @foreach (var dayPlan in visitPlan)
+        {
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5>@dayPlan.Date.ToString("dddd, dd MMMM yyyy")</h5>
+                </div>
+                <div class="card-body">
+                    @foreach (var (visit, index) in dayPlan.Visits.Select((v, i) => (v, i)))
+                    {
+                        <div class="visit-item mb-3 p-3 border">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <strong>@visit.StartTime.ToString("HH:mm") - @visit.EndTime.ToString("HH:mm")</strong>
+                                </div>
+                                <div class="col-md-8">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <h5 class="mb-1">@visit.Place.Name</h5>
+                                            <p class="mb-1">@visit.Place.Street @visit.Place.StreetNumber, @visit.Place.City</p>
+                                        </div>
+                                        <div class="ms-3 d-flex gap-2">
+                                            <span class="badge bg-primary" title="Ocena miejsca">
+                                                <i class="bi bi-star-fill"></i> @visit.Score.ToString("F1")
+                                            </span>
+                                            <button class="btn btn-sm btn-outline-info" @onclick="() => ShowPlaceDetails(visit.Place)">
+                                                <i class="bi bi-info-circle"></i> Szczegóły
+                                            </button>
+                                        </div>
+                                    </div>
+                                    @if (index < dayPlan.Visits.Count - 1 && visit.TravelTimeToNext.HasValue)
+                                    {
+                                        <small class="text-muted">
+                                            Czas przejścia do następnego miejsca: @FormatTravelTime(visit.TravelTimeToNext.Value)
+                                        </small>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (selectedPlace != null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@selectedPlace.Name</h5>
+                    <button type="button" class="btn-close" @onclick="ClosePlaceDetails"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Adres:</h6>
+                            <p>
+                                @selectedPlace.Street @selectedPlace.StreetNumber<br />
+                                @selectedPlace.PostalCode @selectedPlace.City<br />
+                                @selectedPlace.Country
+                            </p>
+
+                            <h6>Współrzędne:</h6>
+                            <p>@selectedPlace.Latitude, @selectedPlace.Longitude</p>
+
+                            <h6>Czas zwiedzania:</h6>
+                            <p>@($"{selectedPlace.ExpectedVisitTime.Hours}h {selectedPlace.ExpectedVisitTime.Minutes}min")</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Godziny otwarcia:</h6>
+                            @foreach (var day in Enum.GetValues<DayOfWeek>())
+                            {
+                                var hours = selectedPlace.OpeningHours.FirstOrDefault(oh => oh.DayOfWeek == day);
+                                <div class="opening-hours-row">
+                                    <span class="day-name">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(day):</span>
+                                    @if (hours?.IsClosed ?? true)
+                                    {
+                                        <span class="hours closed">Zamknięte</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hours">@hours.OpenTime.ToString("HH:mm") - @hours.CloseTime.ToString("HH:mm")</span>
+                                    }
+                                </div>
+                            }
+
+                            @if (selectedPlace.Tags.Any())
+                            {
+                                <h6 class="mt-3">Tagi:</h6>
+                                <div class="tags">
+                                    @foreach (var tag in selectedPlace.Tags)
+                                    {
+                                        <span class="tag">@tag.Name</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @if (selectedPlace.Images.Any())
+                    {
+                        <h6 class="mt-3">Zdjęcia:</h6>
+                        <div id="placeImagesCarousel" class="carousel slide" data-bs-ride="carousel">
+                            <div class="carousel-inner">
+                                @foreach (var (image, index) in selectedPlace.Images.Select((img, i) => (img, i)))
+                                {
+                                    <div class="carousel-item @(index == 0 ? "active" : "")">
+                                        <img src="data:@image.ContentType;base64,@Convert.ToBase64String(image.Data)" 
+                                        class="d-block w-100" alt="@selectedPlace.Name">
+                                    </div>
+                                }
+                            </div>
+                            @if (selectedPlace.Images.Count > 1)
+                            {
+                                <button class="carousel-control-prev" type="button" 
+                                data-bs-target="#placeImagesCarousel" data-bs-slide="prev">
+                                    <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                                    <span class="visually-hidden">Poprzednie</span>
+                                </button>
+                                <button class="carousel-control-next" type="button" 
+                                data-bs-target="#placeImagesCarousel" data-bs-slide="next">
+                                    <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                                    <span class="visually-hidden">Następne</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="ClosePlaceDetails">Zamknij</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<style>
+    .opening-hours-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+    }
+
+    .day-name {
+    font-weight: 500;
+    min-width: 120px;
+    }
+
+    .hours {
+    color: #198754;
+    }
+
+    .hours.closed {
+    color: #dc3545;
+    }
+
+    .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    }
+
+    .tag {
+    background: #e9ecef;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: #495057;
+    }
+
+    .carousel {
+    max-height: 400px;
+    margin-top: 1rem;
+    }
+
+    .carousel-item img {
+    max-height: 400px;
+    object-fit: contain;
+    }
+
+    .modal-backdrop {
+    background-color: rgba(0, 0, 0, 0.5);
+    }
+</style>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+
+@code {
+    [Parameter]
+    public List<PlaceRankingService.RankedPlace> RankedPlaces { get; set; } = new();
+
+    [Parameter]
+    public PlaceRankingService RankingService { get; set; } = default!;
+
+    private DateTime startDateTime = DateTime.Today.AddHours(9); // Domyślnie 9:00
+    private DateTime endDateTime = DateTime.Today.AddDays(1).AddHours(18); // Domyślnie 18:00 następnego dnia
+    private TimeOnly dailyStartTime = new TimeOnly(9, 0);
+    private TimeOnly dailyEndTime = new TimeOnly(18, 0);
+    private List<DayPlan>? visitPlan;
+    private Place? selectedPlace;
+
+    private DateTime startDate => startDateTime.Date;
+    private DateTime endDate => endDateTime.Date;
+    private TimeOnly firstDayStartTime => TimeOnly.FromDateTime(startDateTime);
+    private TimeOnly lastDayEndTime => TimeOnly.FromDateTime(endDateTime);
+
+    private class DayPlan
+    {
+        public DateTime Date { get; set; }
+        public List<VisitItem> Visits { get; set; } = new();
+    }
+
+    private class VisitItem
+    {
+        public Place Place { get; set; } = default!;
+        public TimeOnly StartTime { get; set; }
+        public TimeOnly EndTime { get; set; }
+        public TimeSpan? TravelTimeToNext { get; set; }
+        public double Score { get; set; }
+    }
+
+    private async Task GenerateVisitPlan()
+    {
+        if (startDateTime > endDateTime || RankedPlaces.Count == 0)
+            return;
+
+        visitPlan = new List<DayPlan>();
+        var remainingPlaces = new List<PlaceRankingService.RankedPlace>(
+            RankedPlaces.OrderByDescending(p => p.Score)
+        );
+        Place? lastVisitedPlace = null;
+
+        var currentDate = startDate;
+        while (currentDate <= endDate && remainingPlaces.Any())
+        {
+            var dayPlan = new DayPlan { Date = currentDate };
+
+            // Ustal godziny rozpoczęcia i zakończenia dla danego dnia
+            var dayStartTime = currentDate == startDate ? firstDayStartTime : dailyStartTime;
+            var dayEndTime = currentDate == endDate ? lastDayEndTime : dailyEndTime;
+            var currentTime = dayStartTime;
+
+            while (currentTime < dayEndTime && remainingPlaces.Any())
+            {
+                PlaceRankingService.RankedPlace? selectedPlace = null;
+
+                // Sprawdź każde miejsce w kolejności od najlepiej ocenianego
+                foreach (var place in remainingPlaces)
+                {
+                    var openingHours = GetOpeningHoursForDay(place.Place, currentDate.DayOfWeek);
+                    if (openingHours == null || openingHours.IsClosed)
+                        continue;
+
+                    var placeOpenTime = TimeOnly.FromTimeSpan(openingHours.OpenTime.ToTimeSpan());
+                    var placeCloseTime = TimeOnly.FromTimeSpan(openingHours.CloseTime.ToTimeSpan());
+
+                    // Oblicz czas podróży z ostatniego miejsca
+                    var travelTime = lastVisitedPlace != null 
+                        ? RankingService.CalculateTravelTime(lastVisitedPlace, place.Place)
+                        : TimeSpan.Zero;
+
+                    // Jeśli to pierwszy punkt w dniu, zaczynamy od godziny rozpoczęcia dnia
+                    var visitStartTime = dayPlan.Visits.Count == 0 
+                        ? currentTime 
+                        : currentTime.Add(travelTime);
+
+                    var visitEndTime = visitStartTime.Add(place.Place.ExpectedVisitTime);
+
+                    // Sprawdź czy miejsce będzie otwarte i czy zdążymy je zwiedzić
+                    if (visitStartTime >= placeOpenTime && 
+                        visitEndTime <= placeCloseTime && 
+                        visitEndTime <= dayEndTime &&
+                        visitEndTime > visitStartTime)
+                    {
+                        selectedPlace = place;
+                        break; // Znaleźliśmy pierwsze pasujące miejsce
+                    }
+                }
+
+                if (selectedPlace != null)
+                {
+                    var travelTime = lastVisitedPlace != null 
+                        ? RankingService.CalculateTravelTime(lastVisitedPlace, selectedPlace.Place)
+                        : TimeSpan.Zero;
+
+                    var visitStartTime = dayPlan.Visits.Count == 0 
+                        ? currentTime 
+                        : currentTime.Add(travelTime);
+
+                    var visitEndTime = visitStartTime.Add(selectedPlace.Place.ExpectedVisitTime);
+
+                    var visit = new VisitItem
+                    {
+                        Place = selectedPlace.Place,
+                        StartTime = visitStartTime,
+                        EndTime = visitEndTime,
+                        Score = selectedPlace.Score,
+                        TravelTimeToNext = null
+                    };
+
+                    dayPlan.Visits.Add(visit);
+                    remainingPlaces.Remove(selectedPlace);
+                    lastVisitedPlace = selectedPlace.Place;
+                    currentTime = visitEndTime;
+                }
+                else
+                {
+                    var earliestOpeningHour = remainingPlaces.Select(x => GetOpeningHoursForDay(x.Place, currentDate.DayOfWeek).OpenTime).Min();
+                    if (earliestOpeningHour > currentTime)
+                    {
+                        currentTime = earliestOpeningHour;
+                        continue;
+                    }
+
+                    // Jeśli nie znaleziono odpowiedniego miejsca, przechodzimy do następnego dnia
+                    break;
+                }
+            }
+
+            if (dayPlan.Visits.Any())
+            {
+                visitPlan.Add(dayPlan);
+            }
+            
+            currentDate = currentDate.AddDays(1);
+        }
+
+        StateHasChanged();
+    }
+
+    private OpeningHours? GetOpeningHoursForDay(Place place, DayOfWeek dayOfWeek)
+    {
+        return place.OpeningHours.FirstOrDefault(oh => oh.DayOfWeek == dayOfWeek);
+    }
+
+    private string FormatTravelTime(TimeSpan time)
+    {
+        var hours = Math.Floor(time.TotalHours);
+        var minutes = time.Minutes;
+        
+        if (hours > 0)
+            return $"{hours} godz. {minutes} min";
+        else
+            return $"{minutes} min";
+    }
+
+    private void ShowPlaceDetails(Place place)
+    {
+        selectedPlace = place;
+        StateHasChanged();
+    }
+
+    private void ClosePlaceDetails()
+    {
+        selectedPlace = null;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (selectedPlace?.Images.Any() == true)
+        {
+            await JS.InvokeVoidAsync("bootstrap.Carousel.getOrCreateInstance", "#placeImagesCarousel");
+        }
+    }
+} 

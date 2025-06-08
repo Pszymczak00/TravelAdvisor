@@ -1,0 +1,133 @@
+@page "/tags"
+@using TravelAdvisor.Backend.Models
+@using TravelAdvisor.Backend.Data
+@using Microsoft.EntityFrameworkCore
+@inject ApplicationDbContext DbContext
+
+<h3>Tagi</h3>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="() => ShowAddDialog()">Dodaj nowy tag</button>
+</div>
+
+@if (tags == null)
+{
+    <p>Ładowanie...</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Nazwa</th>
+                <th>Liczba miejsc</th>
+                <th>Akcje</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var tag in tags)
+            {
+                <tr>
+                    <td>@tag.Name</td>
+                    <td>@tag.Places.Count</td>
+                    <td>
+                        <button class="btn btn-warning btn-sm" @onclick="() => ShowEditDialog(tag)">Edytuj</button>
+                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteTag(tag)">Usuń</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (showDialog)
+{
+    <div class="modal" tabindex="-1" style="display: block; background-color: rgba(0,0,0,0.5)">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(editingTag?.Id == Guid.Empty ? "Dodaj tag" : "Edytuj tag")</h5>
+                    <button type="button" class="btn-close" @onclick="CloseDialog"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="name">Nazwa:</label>
+                        <input type="text" class="form-control" id="name" @bind="editingTag.Name" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseDialog">Anuluj</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveTag">Zapisz</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Tag> tags = new();
+    private bool showDialog = false;
+    private Tag editingTag = new Tag();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTags();
+    }
+
+    private async Task LoadTags()
+    {
+        tags = await DbContext.Tags
+            .Include(t => t.Places)
+            .ToListAsync();
+    }
+
+    private void ShowAddDialog()
+    {
+        editingTag = new Tag { Id = Guid.Empty };
+        showDialog = true;
+    }
+
+    private void ShowEditDialog(Tag tag)
+    {
+        editingTag = new Tag
+        {
+            Id = tag.Id,
+            Name = tag.Name
+        };
+        showDialog = true;
+    }
+
+    private async Task SaveTag()
+    {
+        if (editingTag.Id == Guid.Empty)
+        {
+            editingTag.Id = Guid.NewGuid();
+            DbContext.Tags.Add(editingTag);
+        }
+        else
+        {
+            var tag = await DbContext.Tags.FindAsync(editingTag.Id);
+            if (tag != null)
+            {
+                tag.Name = editingTag.Name;
+            }
+        }
+
+        await DbContext.SaveChangesAsync();
+        await LoadTags();
+        CloseDialog();
+    }
+
+    private async Task DeleteTag(Tag tag)
+    {
+        DbContext.Tags.Remove(tag);
+        await DbContext.SaveChangesAsync();
+        await LoadTags();
+    }
+
+    private void CloseDialog()
+    {
+        showDialog = false;
+        editingTag = new Tag();
+    }
+} 

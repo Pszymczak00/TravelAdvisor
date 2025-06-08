@@ -1,0 +1,124 @@
+@using TravelAdvisor.Backend.Models
+@using TravelAdvisor.Backend.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<div class="image-gallery">
+    @if (Images != null && Images.Any())
+    {
+        <div class="image-grid">
+            @foreach (var image in Images)
+            {
+                <div class="image-container">
+                    <img src="@GetImageUrl(image)" alt="@image.FileName" />
+                    @if (AllowDelete)
+                    {
+                        <button class="delete-button" @onclick="() => DeleteImage(image)">
+                            <span>×</span>
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <p>Brak zdjęć</p>
+    }
+</div>
+
+<style>
+    .image-gallery {
+        margin: 1rem 0;
+    }
+
+    .image-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+
+    .image-container {
+        position: relative;
+        aspect-ratio: 1;
+        overflow: hidden;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .image-container img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .delete-button {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        background: rgba(255,255,255,0.8);
+        border: none;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        color: #dc3545;
+        transition: all 0.2s;
+    }
+
+    .delete-button:hover {
+        background: rgba(255,255,255,1);
+        transform: scale(1.1);
+    }
+</style>
+
+@code {
+    [Parameter]
+    public Guid PlaceId { get; set; }
+
+    [Parameter]
+    public bool AllowDelete { get; set; } = true;
+
+    [Parameter]
+    public EventCallback OnImageDeleted { get; set; }
+
+    private List<Image> Images { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadImages();
+    }
+
+    private async Task LoadImages()
+    {
+        await using var context = await DbFactory.CreateDbContextAsync();
+        Images = await context.Images
+            .Where(i => i.PlaceId == PlaceId)
+            .ToListAsync();
+    }
+
+    private string GetImageUrl(Image image)
+    {
+        var base64 = Convert.ToBase64String(image.Data);
+        return $"data:{image.ContentType};base64,{base64}";
+    }
+
+    private async Task DeleteImage(Image image)
+    {
+        await using var context = await DbFactory.CreateDbContextAsync();
+        context.Images.Remove(image);
+        await context.SaveChangesAsync();
+        await LoadImages();
+        await OnImageDeleted.InvokeAsync();
+    }
+
+    public async Task RefreshImages()
+    {
+        await LoadImages();
+        StateHasChanged();
+    }
+} 
