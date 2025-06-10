@@ -1,19 +1,18 @@
 version: '3.8'
 
 services:
-  traveladvisor:
+  web:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
-      - "8443:443"
+      - "8080:80"
     depends_on:
       - db
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-    networks:
-      - traveladvisor-network
+      - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Server=db;Database=TravelAdvisor;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;
 
   db:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -21,16 +20,9 @@ services:
       - "1433:1433"
     environment:
       - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=SqlServer2019
+      - SA_PASSWORD=YourStrong!Passw0rd
     volumes:
-      - sqldata:/var/opt/mssql
-    networks:
-      - traveladvisor-network
+      - sqlserver_data:/var/opt/mssql
 
 volumes:
-  sqldata:
-    driver: local
-
-networks:
-  traveladvisor-network:
-    driver: bridge 
+  sqlserver_data: 

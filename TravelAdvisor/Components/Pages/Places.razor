@@ -10,7 +10,7 @@
     <button class="btn btn-primary" @onclick="() => ShowAddDialog()">Dodaj nowe miejsce</button>
 </div>
 
-@if (places == null)
+@if (!places.Any())
 {
     <p>Ładowanie...</p>
 }
